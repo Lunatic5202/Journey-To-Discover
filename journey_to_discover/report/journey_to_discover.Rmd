@@ -1,0 +1,319 @@
+---
+title: "Journey To Discover"
+subtitle: "Google Review Counts & Hidden-Gem Insight"
+author: "Trio Explorers — Sanchayan Adhya, Aryan Kumar, Aditi Shambhavi, Rahul Mahato"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float: true
+    number_sections: true
+    df_print: paged
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, message = FALSE, warning = FALSE,
+  fig.width = 10, fig.height = 5.5, dpi = 150
+)
+library(tidyverse)
+library(jsonlite)
+library(janitor)
+library(patchwork)
+library(scales)
+library(ggrepel)
+library(viridis)
+library(knitr)
+```
+
+---
+
+# Project Overview
+
+| Field | Detail |
+|---|---|
+| **Project** | Journey to Discover |
+| **Team** | Trio Explorers |
+| **Department** | CSE DS |
+| **Variable of interest** | Number of Google Reviews (in lakhs) |
+
+| Name | Roll No | Autonomy No |
+|---|---|---|
+| Sanchayan Adhya | 2462048 | 12624019043 |
+| Aryan Kumar | 2462065 | 12624019016 |
+| Aditi Shambhavi | 2462045 | 12624019001 |
+| Rahul Mahato | 2462077 | 12625019080 |
+
+## Datasets
+
+| # | Dataset | Records | Key fields used |
+|---|---|---|---|
+| 1 | Top Indian Places to Visit | 325 | Google reviews (lakhs), rating, zone, type, significance |
+| 2 | Indian Tourism Dataset | 100 | Popularity score, hidden gems, budget, safety |
+
+---
+
+# Data Loading & Preparation
+
+```{r load}
+travel_raw <- read_csv(here::here("data","travel_dataset.csv"),
+                       show_col_types = FALSE) %>% clean_names()
+
+tourism_raw <- fromJSON(here::here("data","india_tourism_dataset.json"),
+                        flatten = FALSE)
+
+travel <- travel_raw %>%
+  rename(
+    reviews  = number_of_google_review_in_lakhs,
+    rating   = google_review_rating,
+    fee      = entrance_fee_in_inr,
+    visit_hr = time_needed_to_visit_in_hrs,
+    airport  = airport_with_50km_radius
+  ) %>%
+  mutate(
+    reviews  = as.numeric(reviews),
+    rating   = as.numeric(rating),
+    fee      = as.numeric(fee),
+    popularity_tier = case_when(
+      reviews < 0.5 ~ "Low (<0.5L)",
+      reviews < 1.5 ~ "Moderate (0.5–1.5L)",
+      reviews < 3.0 ~ "High (1.5–3L)",
+      TRUE          ~ "Very High (>3L)"
+    ),
+    popularity_tier = factor(popularity_tier,
+      levels = c("Low (<0.5L)","Moderate (0.5–1.5L)",
+                 "High (1.5–3L)","Very High (>3L)"))
+  ) %>%
+  filter(!is.na(reviews))
+
+tourism <- tibble(
+  destination   = tourism_raw$destination_name,
+  state         = tourism_raw$state,
+  region        = tourism_raw$region,
+  popularity_sc = tourism_raw$popularity_score,
+  safety_rating = tourism_raw$safety_rating,
+  accessibility = tourism_raw$accessibility,
+  hidden_gem_n  = map_int(tourism_raw$hidden_gems, length),
+  budget_low    = map_dbl(tourism_raw$budget_category, ~ .x$total_daily_range[1]),
+  budget_high   = map_dbl(tourism_raw$budget_category, ~ .x$total_daily_range[2])
+)
+
+state_summary <- tourism %>%
+  group_by(state) %>%
+  summarise(
+    avg_popularity = mean(popularity_sc),
+    avg_safety     = mean(safety_rating),
+    total_hidden_n = sum(hidden_gem_n),
+    avg_budget_low = mean(budget_low),
+    .groups = "drop"
+  )
+
+df <- travel %>% left_join(state_summary, by = "state")
+cat("Merged dataset:", nrow(df), "rows\n")
+```
+
+---
+
+# Summary Statistics
+
+```{r stats}
+df %>%
+  summarise(
+    N      = n(),
+    Mean   = round(mean(reviews, na.rm=T), 3),
+    Median = round(median(reviews, na.rm=T), 3),
+    SD     = round(sd(reviews, na.rm=T), 3),
+    Min    = round(min(reviews, na.rm=T), 3),
+    Max    = round(max(reviews, na.rm=T), 3),
+    Q1     = round(quantile(reviews, .25, na.rm=T), 3),
+    Q3     = round(quantile(reviews, .75, na.rm=T), 3),
+    Skewness = round(3*(mean(reviews,na.rm=T)-median(reviews,na.rm=T))/sd(reviews,na.rm=T),3)
+  ) %>%
+  kable(caption = "Descriptive Statistics — Number of Google Reviews (in lakhs)")
+```
+
+> **Positive skewness confirmed** — mean > median. A small set of iconic destinations pulls the average upward, while most places cluster at low review counts.
+
+---
+
+# Analysis
+
+## Distribution: Histogram & Box Plot {.tabset}
+
+### Combined View
+```{r fig1, fig.width=13, fig.height=5.5}
+theme_trio <- theme_minimal(base_size = 13) +
+  theme(plot.title=element_text(face="bold",colour="#1a2e4a"),
+        plot.subtitle=element_text(colour="#555",size=11),
+        panel.grid.minor=element_blank(),
+        plot.background=element_rect(fill="white",colour=NA))
+
+p_hist <- ggplot(df, aes(x=reviews)) +
+  geom_histogram(binwidth=0.3, fill="#2979FF", colour="white", alpha=0.85) +
+  geom_vline(xintercept=mean(df$reviews,na.rm=T), colour="#E53935",
+             linetype="dashed", linewidth=0.8) +
+  geom_vline(xintercept=median(df$reviews,na.rm=T), colour="#FF9800",
+             linetype="dashed", linewidth=0.8) +
+  annotate("text",x=mean(df$reviews,na.rm=T)+0.2,y=70,
+           label="Mean",colour="#E53935",size=3.5) +
+  annotate("text",x=median(df$reviews,na.rm=T)+0.2,y=60,
+           label="Median",colour="#FF9800",size=3.5) +
+  labs(title="Histogram of Google Reviews",
+       subtitle="Positive skew — mean exceeds median",
+       x="Reviews (lakhs)", y="Frequency") + theme_trio
+
+p_box <- ggplot(df, aes(x=1, y=reviews)) +
+  geom_boxplot(fill="#90CAF9", colour="#1a2e4a",
+               outlier.colour="#E53935", outlier.size=2, width=0.4) +
+  geom_text_repel(
+    data=df %>% filter(reviews > quantile(reviews,.99,na.rm=T)),
+    aes(x=1,y=reviews,label=name), size=3, nudge_x=0.35
+  ) +
+  scale_x_continuous(limits=c(0.5,1.8)) +
+  labs(title="Box Plot",subtitle="Red = outlier destinations",
+       x=NULL, y="Reviews (lakhs)") +
+  theme_trio +
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+p_hist + p_box +
+  plot_annotation(title="Journey To Discover — Review Count Distribution",
+    caption="Trio Explorers · CSE DS | Dataset 1: Top Indian Places to Visit")
+```
+
+### Popularity Tiers
+```{r fig2, fig.height=5}
+df %>% count(popularity_tier) %>%
+  mutate(pct=n/sum(n)) %>%
+  ggplot(aes(x=popularity_tier, y=n, fill=popularity_tier)) +
+  geom_col(colour="white", alpha=0.9, width=0.65) +
+  geom_text(aes(label=paste0(n,"\n(",percent(pct,1),")")),
+            vjust=-0.4, fontface="bold", size=4) +
+  scale_fill_manual(values=c("#B3E5FC","#4FC3F7","#0288D1","#01579B")) +
+  scale_y_continuous(expand=expansion(mult=c(0,.15))) +
+  labs(title="Destinations by Popularity Tier",
+       subtitle="Finding 1 — Low-review majority: visibility is concentrated",
+       x=NULL, y="Count") +
+  theme_trio + theme(legend.position="none")
+```
+
+## Ratings vs Reviews
+
+```{r fig3, fig.height=6}
+ggplot(df, aes(x=reviews, y=rating, colour=popularity_tier)) +
+  geom_point(alpha=0.65, size=2.2) +
+  geom_text_repel(data=df %>% filter(reviews>2 | rating<3.8),
+                  aes(label=name), size=2.8, max.overlaps=12) +
+  scale_colour_manual(values=c("#90CAF9","#29B6F6","#0277BD","#01579B")) +
+  labs(title="Google Reviews vs Rating",
+       subtitle="Finding 3 — High popularity ≠ highest quality",
+       x="Number of Reviews (lakhs)", y="Rating",
+       colour="Tier") + theme_trio
+```
+
+## Zone Distribution
+
+```{r fig4, fig.height=5}
+df %>% filter(!is.na(zone)) %>%
+  ggplot(aes(x=reorder(zone,reviews,median), y=reviews, fill=zone)) +
+  geom_violin(alpha=0.7, colour="white") +
+  geom_boxplot(width=0.12, fill="white", colour="#333") +
+  scale_fill_viridis_d(option="D", begin=0.2) +
+  coord_flip() +
+  labs(title="Review Distribution by Zone",
+       subtitle="Northern zones show wider spread due to iconic outlier destinations",
+       x=NULL, y="Reviews (lakhs)") +
+  theme_trio + theme(legend.position="none")
+```
+
+## Top 15 Most-Reviewed
+
+```{r fig5, fig.height=6}
+df %>% arrange(desc(reviews)) %>% slice_head(n=15) %>%
+  ggplot(aes(x=reorder(name,reviews), y=reviews, fill=zone)) +
+  geom_col(alpha=0.9) +
+  geom_text(aes(label=paste0(reviews,"L")), hjust=-0.1, fontface="bold", size=3.5) +
+  coord_flip() +
+  scale_fill_viridis_d(option="D", begin=0.2) +
+  scale_y_continuous(expand=expansion(mult=c(0,.15))) +
+  labs(title="Top 15 Most-Reviewed Destinations",
+       x=NULL, y="Reviews (lakhs)", fill="Zone") + theme_trio
+```
+
+---
+
+# Hidden-Gem Analysis (Dataset 2)
+
+## Hidden Gems by State
+
+```{r fig6, fig.height=6}
+state_summary %>%
+  arrange(desc(total_hidden_n)) %>% slice_head(n=15) %>%
+  ggplot(aes(x=reorder(state,total_hidden_n), y=total_hidden_n,
+             fill=avg_popularity)) +
+  geom_col(alpha=0.9) +
+  geom_text(aes(label=total_hidden_n), hjust=-0.2, fontface="bold", size=3.5) +
+  coord_flip() +
+  scale_fill_viridis_c(option="C", name="Avg\nPopularity") +
+  scale_y_continuous(expand=expansion(mult=c(0,.15))) +
+  labs(title="Hidden Gem Count by State",
+       subtitle="Finding 2 — Low-visibility states often contain validated hidden gems",
+       x=NULL, y="Hidden Gems Listed") + theme_trio
+```
+
+## Budget vs Popularity
+
+```{r fig7, fig.height=6.5}
+ggplot(tourism, aes(x=popularity_sc, y=budget_low,
+                    colour=accessibility, size=hidden_gem_n)) +
+  geom_point(alpha=0.7) +
+  geom_text_repel(aes(label=destination), size=2.8, max.overlaps=10) +
+  scale_colour_viridis_d(option="B", begin=0.2) +
+  scale_y_continuous(labels=label_comma(prefix="₹")) +
+  labs(title="Budget vs Popularity Score",
+       subtitle="Accessible, mid-budget destinations tend to have more hidden gems",
+       x="Popularity Score", y="Min. Daily Budget",
+       colour="Accessibility", size="Hidden\nGems") + theme_trio
+```
+
+---
+
+# Hidden-Gem Recommender
+
+```{r recommender}
+recommend <- function(max_reviews=1.0, min_rating=4.3,
+                      zone_filter=NULL, sig_filter=NULL) {
+  out <- df %>%
+    filter(reviews<=max_reviews, rating>=min_rating, !is.na(total_hidden_n))
+  if (!is.null(zone_filter)) out <- filter(out, zone %in% zone_filter)
+  if (!is.null(sig_filter))  out <- filter(out, significance %in% sig_filter)
+  out %>%
+    arrange(desc(rating), reviews) %>%
+    select(Name=name, State=state, Zone=zone, Type=type,
+           `Reviews (L)`=reviews, Rating=rating,
+           `Entrance Fee (₹)`=fee, `Best Time`=best_time_to_visit) %>%
+    slice_head(n=10)
+}
+
+recommend() %>%
+  kable(caption="Top Hidden-Gem Recommendations (≤1L reviews, rating ≥4.3)")
+```
+
+---
+
+# Key Insights
+
+| # | Finding | Evidence |
+|---|---|---|
+| **1** | **Low-review majority** | Most destinations have < 0.5L reviews; visibility is concentrated at the top. |
+| **2** | **Hidden gems link** | Dataset 2 lists hidden gems per state; low-review states often contain the most undiscovered spots. |
+| **3** | **Recommendation value** | High-rated destinations span all review tiers — popularity alone is a poor itinerary guide. |
+
+> **Core message: Underrated ≠ Inferior.**  
+> Use review counts to map crowd patterns, then cross-validate overlooked places with destination metadata.
+
+---
+
+*Prepared by Trio Explorers · CSE DS*
