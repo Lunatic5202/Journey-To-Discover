@@ -105,3 +105,7 @@ The analysis uses two supplied tourism datasets: a 325-place travel/review datas
 ## Reproducibility
 
 Run the package installer script from the location documented by the R project, then execute the analysis and render the report. Confirm that the output directory exists and that plots are regenerated before describing an output as current. The Shiny app and report paths should be checked from the nested project tree rather than assuming an `R/` folder exists at repository root.
+
+## License and dataset rights
+
+No project-wide license is currently provided. The included tourism datasets and derived analysis are project inputs; their source and redistribution terms must be checked independently before reuse or republication. Do not assume that the repository's presence on GitHub grants permission to redistribute the data.
