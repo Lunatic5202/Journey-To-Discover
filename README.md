@@ -94,3 +94,14 @@ The app opens in your browser automatically. It has four tabs:
 source("R/install_packages.R")
 ```
 Packages needed: `shiny`, `bslib`, `tidyverse`, `jsonlite`, `janitor`, `DT`, `plotly`, `scales`, `here`
+
+
+## Repository layout clarification
+
+The repository root contains the top-level analysis and dataset files. The RStudio project and the fuller report/application structure live under `journey_to_discover/`. Open `journey_to_discover/journey_to_discover.Rproj` when working with the nested R project. Keep paths in scripts and report instructions relative to the project root that actually contains those files.
+
+The analysis uses two supplied tourism datasets: a 325-place travel/review dataset and a curated 100-destination dataset. Treat the supplied data as project inputs; document any cleaning, joins, filtering or derived popularity/gem scores when changing the analysis.
+
+## Reproducibility
+
+Run the package installer script from the location documented by the R project, then execute the analysis and render the report. Confirm that the output directory exists and that plots are regenerated before describing an output as current. The Shiny app and report paths should be checked from the nested project tree rather than assuming an `R/` folder exists at repository root.
